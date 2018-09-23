@@ -94,7 +94,7 @@ MODELS = {
 def train(model_name, fold, run=None):
     model_info = MODELS[model_name]
 
-    run_str = '' if run is None else f'_{run}'
+    run_str = '' if run is None or run == '' else f'_{run}'
 
     checkpoints_dir = f'checkpoints/{model_name}{run_str}_fold_{fold}'
     tensorboard_dir = f'../output/tensorboard/{model_name}{run_str}_fold_{fold}'
@@ -108,11 +108,11 @@ def train(model_name, fold, run=None):
     retinanet = retinanet.cuda()
     retinanet = torch.nn.DataParallel(retinanet).cuda()
 
-    dataset_train = DetectionDataset(fold=fold, img_size=model_info.img_size, is_training=True)
-    dataset_valid = DetectionDataset(fold=fold, img_size=model_info.img_size, is_training=False, images=dataset_train.images)
+    dataset_train = DetectionDataset(fold=fold, img_size=model_info.img_size, is_training=True, images={})
+    dataset_valid = DetectionDataset(fold=fold, img_size=model_info.img_size, is_training=False, images={})
 
     dataloader_train = DataLoader(dataset_train,
-                                  num_workers=8,
+                                  num_workers=16,
                                   batch_size=model_info.batch_size,
                                   shuffle=True,
                                   collate_fn=pytorch_retinanet.dataloader.collater2d)
@@ -190,8 +190,9 @@ def train(model_name, fold, run=None):
 
             data_iter = tqdm(enumerate(dataloader_valid), total=len(dataloader_valid))
             for iter_num, data in data_iter:
-                classification_loss, regression_loss, nms_scores, nms_class, transformed_anchors = \
-                    retinanet([data['img'].cuda().float(), data['annot']], return_loss=True, return_boxes=True)
+                res = retinanet.module([data['img'].cuda().float(), data['annot'].cuda().float()],
+                                       return_loss=True, return_boxes=True)
+                classification_loss, regression_loss, nms_scores, nms_class, transformed_anchors = res
 
                 classification_loss = classification_loss.mean()
                 regression_loss = regression_loss.mean()
@@ -262,7 +263,7 @@ def check(model_name, fold, checkpoint):
 
         for i in range(len(nms_scores)):
             nms_score = nms_scores[i]
-            if nms_score < 0.3:
+            if nms_score < 0.1:
                 break
             # print(transformed_anchors[i, :])
 
@@ -270,9 +271,9 @@ def check(model_name, fold, checkpoint):
             p1 = transformed_anchors[i, 2:4]
 
             color = 'g'
-            if nms_score < 0.5:
-                color = 'y'
             if nms_score < 0.4:
+                color = 'y'
+            if nms_score < 0.25:
                 color = 'r'
 
             # print(p0, p1)

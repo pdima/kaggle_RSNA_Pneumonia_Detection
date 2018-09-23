@@ -297,17 +297,17 @@ class ResNet(nn.Module):
 
             if scores_over_thresh.sum() == 0:
                 # no boxes to NMS, just return
-                return [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
+                res += [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
+            else:
+                classification = classification[:, scores_over_thresh, :]
+                transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
+                scores = scores[:, scores_over_thresh, :]
 
-            classification = classification[:, scores_over_thresh, :]
-            transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
-            scores = scores[:, scores_over_thresh, :]
+                anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.4)
 
-            anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.4)
+                nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
 
-            nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
-
-            res += [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]
+                res += [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]
 
         return res
 
@@ -320,7 +320,7 @@ def resnet18(num_classes, pretrained=False, **kwargs):
     """
     model = ResNet(num_classes, BasicBlock, [2, 2, 2, 2], **kwargs)
     if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet18'], model_dir='.'), strict=False)
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet18'], model_dir='models'), strict=False)
     return model
 
 
@@ -331,7 +331,7 @@ def resnet34(num_classes, pretrained=False, **kwargs):
     """
     model = ResNet(num_classes, BasicBlock, [3, 4, 6, 3], **kwargs)
     if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet34'], model_dir='.'), strict=False)
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet34'], model_dir='models'), strict=False)
     return model
 
 
@@ -342,7 +342,7 @@ def resnet50(num_classes, pretrained=False, **kwargs):
     """
     model = ResNet(num_classes, Bottleneck, [3, 4, 6, 3], **kwargs)
     if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet50'], model_dir='.'), strict=False)
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet50'], model_dir='models'), strict=False)
     return model
 
 def resnet101(num_classes, pretrained=False, **kwargs):
@@ -352,7 +352,7 @@ def resnet101(num_classes, pretrained=False, **kwargs):
     """
     model = ResNet(num_classes, Bottleneck, [3, 4, 23, 3], **kwargs)
     if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet101'], model_dir='.'), strict=False)
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet101'], model_dir='models'), strict=False)
     return model
 
 
@@ -363,5 +363,5 @@ def resnet152(num_classes, pretrained=False, **kwargs):
     """
     model = ResNet(num_classes, Bottleneck, [3, 8, 36, 3], **kwargs)
     if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet152'], model_dir='.'), strict=False)
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet152'], model_dir='models'), strict=False)
     return model
