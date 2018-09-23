@@ -1,0 +1,7 @@
+__pycache__
+*.pyc
+*.pth
+.idea
+.git_old
+models
+checkpoints
