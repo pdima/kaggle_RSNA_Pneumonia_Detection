@@ -24,7 +24,7 @@ class DetectionDataset(Dataset):
         self.fold = fold
         self.is_training = is_training
         self.img_size = img_size
-        self.classes = ['No Lung Opacity / Not Normal', 'Normal', 'Lung Opacity']
+        self.categories = ['No Lung Opacity / Not Normal', 'Normal', 'Lung Opacity']
 
         samples = pd.read_csv('../input/stage_1_train_labels.csv')
         samples = samples.merge(pd.read_csv('../input/folds.csv'), on='patientId', how='left')
@@ -40,11 +40,13 @@ class DetectionDataset(Dataset):
             self.samples = samples[samples.fold == fold]
 
         self.patient_ids = list(sorted(self.samples.patientId.unique()))
+        self.patient_categories = {}
 
         self.annotations = defaultdict(list)
         for _, row in self.samples.iterrows():
+            patient_id = row['patientId']
+            self.patient_categories[patient_id] = self.categories.index(row['class'])
             if row['Target'] > 0:
-                patient_id = row['patientId']
                 x, y, w, h = row.x, row.y, row.width, row.height
                 points = np.array([
                     [x, y + h / 3],
@@ -144,7 +146,7 @@ class DetectionDataset(Dataset):
         else:
             annotations = np.zeros((0, 5))
 
-        sample = {'img': crop, 'annot': annotations, 'scale': 1.0}
+        sample = {'img': crop, 'annot': annotations, 'scale': 1.0, 'category': self.patient_categories[patient_id]}
         return sample
 
 

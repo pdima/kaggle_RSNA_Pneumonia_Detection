@@ -143,22 +143,25 @@ def train(model_name, fold, run=None):
 
         epoch_loss = []
         loss_cls_hist = []
+        loss_cls_global_hist = []
         loss_reg_hist = []
 
         data_iter = tqdm(enumerate(dataloader_train), total=len(dataloader_train))
         for iter_num, data in data_iter:
             optimizer.zero_grad()
 
-            classification_loss, regression_loss = retinanet([data['img'].cuda().float(), data['annot']],
-                                                             return_loss=True, return_boxes=False)
+            classification_loss, regression_loss, global_classification_loss = \
+                retinanet([data['img'].cuda().float(), data['annot'].cuda().float(), data['category'].cuda()],
+                          return_loss=True, return_boxes=False)
 
             classification_loss = classification_loss.mean()
             regression_loss = regression_loss.mean()
+            global_classification_loss = global_classification_loss.mean()
 
-            loss = classification_loss + regression_loss
+            loss = classification_loss + regression_loss + global_classification_loss
 
-            if bool(loss == 0):
-                continue
+            # if bool(loss == 0):
+            #     continue
 
             loss.backward()
 
@@ -167,17 +170,19 @@ def train(model_name, fold, run=None):
             optimizer.step()
 
             loss_cls_hist.append(float(classification_loss))
+            loss_cls_global_hist.append(float(global_classification_loss))
             loss_reg_hist.append(float(regression_loss))
             epoch_loss.append(float(loss))
 
             data_iter.set_description(
-                f'{epoch_num} cls: {np.mean(loss_cls_hist):1.4f} Reg: {np.mean(loss_reg_hist):1.4f} Running: {np.mean(epoch_loss):1.4f}')
+                f'{epoch_num} cls: {np.mean(loss_cls_hist):1.4f} cls g: {np.mean(loss_cls_global_hist):1.4f} Reg: {np.mean(loss_reg_hist):1.4f} Loss: {np.mean(epoch_loss):1.4f}')
 
             del classification_loss
             del regression_loss
 
         logger.scalar_summary('loss_train', np.mean(epoch_loss), epoch_num)
         logger.scalar_summary('loss_train_classification', np.mean(loss_cls_hist), epoch_num)
+        logger.scalar_summary('loss_train_global_classification', np.mean(loss_cls_global_hist), epoch_num)
         logger.scalar_summary('loss_train_regression', np.mean(loss_reg_hist), epoch_num)
 
         # validation
@@ -186,30 +191,33 @@ def train(model_name, fold, run=None):
 
             loss_hist_valid = []
             loss_cls_hist_valid = []
+            loss_cls_global_hist_valid = []
             loss_reg_hist_valid = []
 
             data_iter = tqdm(enumerate(dataloader_valid), total=len(dataloader_valid))
             for iter_num, data in data_iter:
-                res = retinanet.module([data['img'].cuda().float(), data['annot'].cuda().float()],
+                res = retinanet.module([data['img'].cuda().float(), data['annot'].cuda().float(), data['category'].cuda()],
                                        return_loss=True, return_boxes=True)
-                classification_loss, regression_loss, nms_scores, nms_class, transformed_anchors = res
+                classification_loss, regression_loss, global_classification_loss, nms_scores, nms_class, transformed_anchors = res
 
                 classification_loss = classification_loss.mean()
                 regression_loss = regression_loss.mean()
-                loss = classification_loss + regression_loss
+                loss = classification_loss + regression_loss + global_classification_loss
 
                 loss_hist_valid.append(float(loss))
                 loss_cls_hist_valid.append(float(classification_loss))
+                loss_cls_global_hist_valid.append(float(global_classification_loss))
                 loss_reg_hist_valid.append(float(regression_loss))
 
                 data_iter.set_description(
-                    f'{epoch_num} cls: {np.mean(loss_cls_hist_valid):1.4f} Reg: {np.mean(loss_reg_hist_valid):1.4f} Total {np.mean(loss_hist_valid):1.4f}')
+                    f'{epoch_num} cls: {np.mean(loss_cls_hist_valid):1.4f} cls g: {np.mean(loss_cls_global_hist_valid):1.4f} Reg: {np.mean(loss_reg_hist_valid):1.4f} Loss {np.mean(loss_hist_valid):1.4f}')
 
                 del classification_loss
                 del regression_loss
 
             logger.scalar_summary('loss_valid', np.mean(loss_hist_valid), epoch_num)
             logger.scalar_summary('loss_valid_classification', np.mean(loss_cls_hist_valid), epoch_num)
+            logger.scalar_summary('loss_valid_global_classification', np.mean(loss_cls_global_hist_valid), epoch_num)
             logger.scalar_summary('loss_valid_regression', np.mean(loss_reg_hist_valid), epoch_num)
 
         scheduler.step(np.mean(epoch_loss))
@@ -239,8 +247,8 @@ def check(model_name, fold, checkpoint):
 
     data_iter = tqdm(enumerate(dataloader_valid), total=len(dataloader_valid))
     for iter_num, data in data_iter:
-        classification_loss, regression_loss, nms_scores, nms_class, transformed_anchors = \
-            model([data['img'].to(device).float(), data['annot'].to(device).float()],
+        classification_loss, regression_loss, global_classification_loss, nms_scores, nms_class, transformed_anchors = \
+            model([data['img'].to(device).float(), data['annot'].to(device).float(), data['category'].cuda()],
                   return_loss=True, return_boxes=True)
 
         nms_scores = nms_scores.cpu().detach().numpy()
@@ -248,7 +256,8 @@ def check(model_name, fold, checkpoint):
         transformed_anchors = transformed_anchors.cpu().detach().numpy()
 
         print(nms_scores, transformed_anchors.shape)
-        print('cls loss:', float(classification_loss), ' reg loss:', float(regression_loss))
+        print('cls loss:', float(classification_loss), 'global cls loss:', global_classification_loss, ' reg loss:', float(regression_loss))
+        print('cat:', data['category'].numpy()[0], np.exp(nms_class[0]), dataset_valid.categories[data['category'][0]])
 
         plt.cla()
         plt.imshow(data['img'][0, 0].cpu().detach().numpy())

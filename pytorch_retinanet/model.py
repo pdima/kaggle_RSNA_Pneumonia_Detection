@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch.nn.functional as F
 import torch
 import math
 import time
@@ -168,6 +169,30 @@ class ClassificationModel(nn.Module):
 
         return out2.contiguous().view(x.shape[0], -1, self.num_classes)
 
+
+class GlobalClassificationModel(nn.Module):
+    def __init__(self, num_features_in, num_classes=80, feature_size=256):
+        super().__init__()
+
+        self.num_classes = num_classes
+        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, dilation=1, padding=0)
+        self.fc = nn.Linear(feature_size*2, num_classes)
+        self.output_act = nn.LogSoftmax(dim=-1)
+
+    def forward(self, x):
+        out = F.max_pool2d(x, 2)
+        out = self.conv1(out)
+        out = F.relu(out)
+
+        avg_pool = F.avg_pool2d(out, out.shape[2:])
+        max_pool = F.max_pool2d(out, out.shape[2:])
+        avg_max_pool = torch.cat((avg_pool, max_pool), 1)
+        out = avg_max_pool.view(avg_max_pool.size(0), -1)
+        out = self.fc(out)
+        out = self.output_act(out)
+
+        return out
+
 class ResNet(nn.Module):
 
     def __init__(self, num_classes, block, layers):
@@ -201,6 +226,8 @@ class ResNet(nn.Module):
 
         self.regressionModel = RegressionModel(256)
         self.classificationModel = ClassificationModel(256, num_classes=num_classes)
+        self.globalClassificationModel = GlobalClassificationModel(fpn_sizes[-1], num_classes=3, feature_size=256)
+        self.globalClassificationLoss = nn.NLLLoss()
 
         self.anchors = Anchors(pyramid_levels=[2, 3, 4, 5, 6, 7])
 
@@ -258,7 +285,7 @@ class ResNet(nn.Module):
     def forward(self, inputs, return_loss, return_boxes):
 
         if return_loss:
-            img_batch, annotations = inputs
+            img_batch, annotations, global_annotations = inputs
         else:
             img_batch = inputs
 
@@ -280,12 +307,15 @@ class ResNet(nn.Module):
 
         classification = torch.cat([self.classificationModel(feature) for feature in features], dim=1)
 
+        global_classification = self.globalClassificationModel(x4)
+
         anchors = self.anchors(img_batch)
 
         res = []
 
         if return_loss:
             res += list(self.focalLoss(classification, regression, anchors, annotations))
+            res += [self.globalClassificationLoss(global_classification, global_annotations)]
 
         if return_boxes:
             transformed_anchors = self.regressBoxes(anchors, regression)
@@ -297,17 +327,18 @@ class ResNet(nn.Module):
 
             if scores_over_thresh.sum() == 0:
                 # no boxes to NMS, just return
-                res += [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
+                res += [torch.zeros(0), global_classification, torch.zeros(0, 4)]
             else:
                 classification = classification[:, scores_over_thresh, :]
                 transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
                 scores = scores[:, scores_over_thresh, :]
 
-                anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.4)
+                # use very low threshold of 0.05 as boxes should not overlap
+                anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.05)
 
                 nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
 
-                res += [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]
+                res += [nms_scores, global_classification, transformed_anchors[0, anchors_nms_idx, :]]
 
         return res
 
