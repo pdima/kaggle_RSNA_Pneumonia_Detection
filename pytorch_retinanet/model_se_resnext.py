@@ -2,19 +2,14 @@ from collections import OrderedDict
 
 import torch.nn as nn
 import torch
-import math
-import time
 import torch.utils.model_zoo as model_zoo
-from .utils import BBoxTransform, ClipBoxes
-from .anchors import Anchors
-from . import losses
 
 from pretrainedmodels.models import senet
-from .model import PyramidFeatures, RegressionModel, ClassificationModel, nms
+from .model import RetinaNet
 
 
-class SeResNetXt(nn.Module):
-    def __init__(self, num_classes):
+class SeResNetXtEncoder(nn.Module):
+    def __init__(self):
         super().__init__()
         block = senet.SEResNeXtBottleneck
         layers = [3, 4, 23, 3]
@@ -74,43 +69,12 @@ class SeResNetXt(nn.Module):
             downsample_padding=downsample_padding
         )
 
-        fpn_sizes = [
+        self.fpn_sizes = [
             self.layer1[layers[0] - 1].conv3.out_channels,
             self.layer2[layers[1] - 1].conv3.out_channels,
             self.layer3[layers[2] - 1].conv3.out_channels,
             self.layer4[layers[3] - 1].conv3.out_channels
         ]
-
-        self.fpn = PyramidFeatures(fpn_sizes[0], fpn_sizes[1], fpn_sizes[2], fpn_sizes[3])
-
-        self.regressionModel = RegressionModel(256)
-        self.classificationModel = ClassificationModel(256, num_classes=num_classes)
-
-        self.anchors = Anchors(pyramid_levels=[2, 3, 4, 5, 6, 7])
-
-        self.regressBoxes = BBoxTransform()
-
-        self.clipBoxes = ClipBoxes()
-
-        self.focalLoss = losses.FocalLoss()
-
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-        prior = 0.01
-
-        self.classificationModel.output.weight.data.fill_(0)
-        self.classificationModel.output.bias.data.fill_(-math.log((1.0 - prior) / prior))
-
-        self.regressionModel.output.weight.data.fill_(0)
-        self.regressionModel.output.bias.data.fill_(0)
-
-        self.freeze_bn()
 
     def _make_layer(self, block, planes, blocks, groups, reduction, stride=1,
                     downsample_kernel_size=1, downsample_padding=0):
@@ -132,22 +96,9 @@ class SeResNetXt(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def freeze_bn(self):
-        '''Freeze BatchNorm layers.'''
-        for layer in self.modules():
-            if isinstance(layer, nn.BatchNorm2d):
-                layer.eval()
 
-    def freeze_encoder(self):
-        for layer in [self.layer0, self.layer1, self.layer2, self.layer3, self.layer4]:
-            layer.eval()
-
-    def forward(self, inputs, return_loss, return_boxes):
-
-        if return_loss:
-            img_batch, annotations = inputs
-        else:
-            img_batch = inputs
+    def forward(self, inputs):
+        img_batch = inputs
 
         x = torch.cat([img_batch, img_batch, img_batch], dim=1)
         x = self.layer0(x)
@@ -156,52 +107,19 @@ class SeResNetXt(nn.Module):
         x3 = self.layer3(x2)
         x4 = self.layer4(x3)
 
-        features = self.fpn([x1, x2, x3, x4])
-
-        regression = torch.cat([self.regressionModel(feature) for feature in features], dim=1)
-
-        classification = torch.cat([self.classificationModel(feature) for feature in features], dim=1)
-
-        anchors = self.anchors(img_batch)
-
-        res = []
-
-        if return_loss:
-            res += list(self.focalLoss(classification, regression, anchors, annotations))
-
-        if return_boxes:
-            transformed_anchors = self.regressBoxes(anchors, regression)
-            transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
-
-            scores = torch.max(classification, dim=2, keepdim=True)[0]
-
-            scores_over_thresh = (scores > 0.05)[0, :, 0]
-
-            if scores_over_thresh.sum() == 0:
-                # no boxes to NMS, just return
-                return [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
-
-            classification = classification[:, scores_over_thresh, :]
-            transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
-            scores = scores[:, scores_over_thresh, :]
-
-            anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.4)
-
-            nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
-
-            res += [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]
-
-        return res
+        return x1, x2, x3, x4
 
 
-def se_resnext101(num_classes, pretrained=False, **kwargs):
+def se_resnext101(num_classes, pretrained=False):
     """Constructs a ResNet-101 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = SeResNetXt(num_classes, **kwargs)
+    encoder = SeResNetXtEncoder()
     if pretrained:
-        model.load_state_dict(model_zoo.load_url(
+        encoder.load_state_dict(model_zoo.load_url(
             senet.pretrained_settings['se_resnext101_32x4d']['imagenet']['url'], model_dir='models'), strict=False)
+
+    model = RetinaNet(encoder=encoder, num_classes=num_classes)
     return model
 
