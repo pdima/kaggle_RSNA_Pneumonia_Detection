@@ -96,7 +96,6 @@ class SeResNetXtEncoder(nn.Module):
 
         return nn.Sequential(*layers)
 
-
     def forward(self, inputs):
         img_batch = inputs
 

@@ -1,6 +1,7 @@
 import argparse
 import collections
 import os
+import pickle
 
 import numpy as np
 import torch
@@ -9,10 +10,11 @@ from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 from torchvision import datasets, models, transforms
 from tqdm import tqdm
-import skimage.io
+import metric
 
 import pytorch_retinanet.model
 import pytorch_retinanet.model_se_resnext
+import pytorch_retinanet.model_dpn
 import pytorch_retinanet.dataloader
 
 import config
@@ -112,8 +114,10 @@ def train(model_name, fold, run=None):
 
     checkpoints_dir = f'checkpoints/{model_name}{run_str}_fold_{fold}'
     tensorboard_dir = f'../output/tensorboard/{model_name}{run_str}_fold_{fold}'
+    predictions_dir = f'../output/oof/{model_name}{run_str}_fold_{fold}'
     os.makedirs(checkpoints_dir, exist_ok=True)
     os.makedirs(tensorboard_dir, exist_ok=True)
+    os.makedirs(predictions_dir, exist_ok=True)
     print('\n', model_name, '\n')
 
     logger = Logger(tensorboard_dir)
@@ -129,12 +133,14 @@ def train(model_name, fold, run=None):
                                   num_workers=16,
                                   batch_size=model_info.batch_size,
                                   shuffle=True,
+                                  drop_last=True,
                                   collate_fn=pytorch_retinanet.dataloader.collater2d)
 
     dataloader_valid = DataLoader(dataset_valid,
                                   num_workers=8,
-                                  batch_size=model_info.batch_size,
+                                  batch_size=4,
                                   shuffle=False,
+                                  drop_last=True,
                                   collate_fn=pytorch_retinanet.dataloader.collater2d)
 
     retinanet.training = True
@@ -163,10 +169,11 @@ def train(model_name, fold, run=None):
         data_iter = tqdm(enumerate(dataloader_train), total=len(dataloader_train))
         for iter_num, data in data_iter:
             optimizer.zero_grad()
+            inputs = [data['img'].cuda().float(), data['annot'].cuda().float(), data['category'].cuda()]
+            # print([i.shape for i in inputs])
 
             classification_loss, regression_loss, global_classification_loss = \
-                retinanet([data['img'].cuda().float(), data['annot'].cuda().float(), data['category'].cuda()],
-                          return_loss=True, return_boxes=False)
+                retinanet(inputs, return_loss=True, return_boxes=False)
 
             classification_loss = classification_loss.mean()
             regression_loss = regression_loss.mean()
@@ -208,11 +215,21 @@ def train(model_name, fold, run=None):
             loss_cls_global_hist_valid = []
             loss_reg_hist_valid = []
 
+            # oof = collections.defaultdict(list)
+
             data_iter = tqdm(enumerate(dataloader_valid), total=len(dataloader_valid))
             for iter_num, data in data_iter:
-                res = retinanet.module([data['img'].cuda().float(), data['annot'].cuda().float(), data['category'].cuda()],
-                                       return_loss=True, return_boxes=True)
-                classification_loss, regression_loss, global_classification_loss, nms_scores, nms_class, transformed_anchors = res
+                res = retinanet([data['img'].cuda().float(), data['annot'].cuda().float(), data['category'].cuda()],
+                                       return_loss=True, return_boxes=False)
+                # classification_loss, regression_loss, global_classification_loss, nms_scores, global_class, transformed_anchors = res
+                classification_loss, regression_loss, global_classification_loss = res
+
+
+                # oof['gt_boxes'].append(data['annot'].cpu().numpy().copy())
+                # oof['gt_category'].append(data['category'].cpu().numpy().copy())
+                # oof['boxes'].append(transformed_anchors.cpu().numpy().copy())
+                # oof['scores'].append(nms_scores.cpu().numpy().copy())
+                # oof['category'].append(global_class.cpu().numpy().copy())
 
                 classification_loss = classification_loss.mean()
                 regression_loss = regression_loss.mean()
@@ -233,6 +250,16 @@ def train(model_name, fold, run=None):
             logger.scalar_summary('loss_valid_classification', np.mean(loss_cls_hist_valid), epoch_num)
             logger.scalar_summary('loss_valid_global_classification', np.mean(loss_cls_global_hist_valid), epoch_num)
             logger.scalar_summary('loss_valid_regression', np.mean(loss_reg_hist_valid), epoch_num)
+
+            # pickle.dump(oof, open(f'{predictions_dir}/{epoch_num:03}.pkl', 'wb'))
+            #
+            # np.savez(f'{predictions_dir}/{epoch_num:03}.npz',
+            #          gt_boxes=np.concatenate(oof['gt_boxes'], axis=0),
+            #          gt_category=np.concatenate(oof['gt_category'], axis=0),
+            #          boxes=np.concatenate(oof['boxes'], axis=0),
+            #          scores=np.concatenate(oof['scores'], axis=0),
+            #          category=np.concatenate(oof['category'], axis=0)
+            #          )
 
         scheduler.step(np.mean(epoch_loss))
         # if epoch_num % 4 == 0:
@@ -307,6 +334,124 @@ def check(model_name, fold, checkpoint):
         print(nms_scores)
 
 
+def generate_predictions(model_name, run, fold):
+    run_str = '' if run is None or run == '' else f'_{run}'
+    predictions_dir = f'../output/oof2/{model_name}{run_str}_fold_{fold}'
+    os.makedirs(predictions_dir, exist_ok=True)
+
+    model_info = MODELS[model_name]
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    for epoch_num in range(4, 100):
+        checkpoint = f'checkpoints/{model_name}{run_str}_fold_{fold}/{model_name}_{epoch_num:03}.pt'
+        try:
+            model = torch.load(checkpoint, map_location=device)
+        except FileNotFoundError:
+            break
+        model = model.to(device)
+        model.eval()
+
+        dataset_valid = DetectionDataset(fold=fold, img_size=model_info.img_size, is_training=False,
+                                         images={})
+
+        dataloader_valid = DataLoader(dataset_valid,
+                                      num_workers=2,
+                                      batch_size=1,
+                                      shuffle=False,
+                                      collate_fn=pytorch_retinanet.dataloader.collater2d)
+
+        oof = collections.defaultdict(list)
+
+        # for iter_num, data in tqdm(enumerate(dataloader_valid), total=len(dataloader_valid)):
+        for iter_num, data in tqdm(enumerate(dataset_valid), total=len(dataloader_valid)):
+            data = pytorch_retinanet.dataloader.collater2d([data])
+            img = data['img'].to(device).float()
+            nms_scores, global_classification, transformed_anchors = \
+                model(img, return_loss=False, return_boxes=True)
+
+            nms_scores = nms_scores.cpu().detach().numpy()
+            global_classification = global_classification.cpu().detach().numpy()
+            transformed_anchors = transformed_anchors.cpu().detach().numpy()
+
+            oof['gt_boxes'].append(data['annot'].cpu().detach().numpy())
+            oof['gt_category'].append(data['category'].cpu().detach().numpy())
+
+            oof['boxes'].append(transformed_anchors)
+            oof['scores'].append(nms_scores)
+            oof['category'].append(global_classification)
+
+        pickle.dump(oof, open(f'{predictions_dir}/{epoch_num:03}.pkl', 'wb'))
+
+
+def p1p2_to_xywh(p1p2):
+    xywh = np.zeros((p1p2.shape[0], 4))
+
+    xywh[:, :2] = p1p2[:, :2]
+    xywh[:, 2:4] = p1p2[:, 2:4] - p1p2[:, :2]
+
+    return xywh
+
+
+
+def check_metric(model_name, run, fold):
+    run_str = '' if run is None or run == '' else f'_{run}'
+    predictions_dir = f'../output/oof2/{model_name}{run_str}_fold_{fold}'
+    thresholds = [0.05, 0.075, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.4, 1.6, 2.0, 3.0, 4.0]
+
+    all_scores = []
+
+    for epoch_num in range(4, 100):
+        print('epoch ', epoch_num)
+        fn = f'{predictions_dir}/{epoch_num:03}.pkl'
+        try:
+            oof = pickle.load(open(fn, 'rb'))
+        except FileNotFoundError:
+            break
+        epoch_scores = []
+        nb_images = len(oof['scores'])
+        for threshold in thresholds:
+            threshold_scores = []
+            for img_id in range(nb_images):
+                gt_boxes = oof['gt_boxes'][img_id][0].copy()
+
+                boxes = oof['boxes'][img_id].copy()
+                scores = oof['scores'][img_id].copy()
+                category = oof['category'][img_id]
+
+                category = np.exp(category[0, 2])
+
+                if len(scores):
+                    scores[scores < scores[0]*0.5] = 0.0
+
+                    # if category > 0.5 and scores[0] < 0.2:
+                    #     scores[0] *= 2
+
+                mask = scores * category * 10 > threshold
+                # mask = scores * 5 > threshold
+
+                if gt_boxes[0, 4] == -1.0:
+                    if np.any(mask):
+                        threshold_scores.append(0.0)
+                else:
+                    if len(scores[mask]) == 0:
+                        score = 0.0
+                    else:
+                        score = metric.map_iou(
+                            boxes_true=p1p2_to_xywh(gt_boxes),
+                            boxes_pred=p1p2_to_xywh(boxes[mask]),
+                            scores=scores[mask])
+                    # print(score)
+                    threshold_scores.append(score)
+
+            print(threshold, np.mean(threshold_scores))
+            epoch_scores.append(np.mean(threshold_scores))
+        all_scores.append(epoch_scores)
+
+    print('best score', np.max(all_scores))
+    plt.imshow(np.array(all_scores))
+    plt.show()
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('action', type=str, default='check')
@@ -314,6 +459,7 @@ if __name__ == '__main__':
     parser.add_argument('--run', type=str, default='')
     parser.add_argument('--fold', type=int, default=-1)
     parser.add_argument('--weights', type=str, default='')
+    parser.add_argument('--epoch', type=int, default=-1)
 
     args = parser.parse_args()
     action = args.action
@@ -324,4 +470,16 @@ if __name__ == '__main__':
         train(model_name=model, run=args.run, fold=args.fold)
 
     if action == 'check':
-        check(model_name=model, fold=args.fold, checkpoint=args.weights)
+        if args.epoch > -1:
+            run_str = '' if args.run is None or args.run == '' else f'_{args.run}'
+            weights = f'checkpoints/{args.model_name}{run_str}_fold_{fold}/{args.model_name}_{args.epoch:03}.pt'
+        else:
+            weights = args.weighs
+
+        check(model_name=model, fold=args.fold, checkpoint=weights)
+
+    if action == 'check_metric':
+        check_metric(model_name=model, run=args.run, fold=args.fold)
+
+    if action == 'generate_predictions':
+        generate_predictions(model_name=model, run=args.run, fold=args.fold)
