@@ -88,6 +88,20 @@ MODELS = {
         batch_size=32,
         dataset_args=dict()
     ),
+    'dpn92_256': ModelInfo(
+        factory=pytorch_retinanet.model_dpn.dpn92,
+        args=dict(num_classes=1, pretrained=True),
+        img_size=256,
+        batch_size=4,
+        dataset_args=dict()
+    ),
+    'dpn92_512': ModelInfo(
+        factory=pytorch_retinanet.model_dpn.dpn92,
+        args=dict(num_classes=1, pretrained=True),
+        img_size=512,
+        batch_size=4,
+        dataset_args=dict()
+    ),
 }
 
 
