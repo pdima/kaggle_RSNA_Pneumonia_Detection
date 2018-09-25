@@ -2,6 +2,9 @@ import argparse
 import collections
 import os
 import pickle
+import pandas as pd
+import pydicom
+import skimage.transform
 
 import numpy as np
 import torch
@@ -15,9 +18,11 @@ import metric
 import pytorch_retinanet.model
 import pytorch_retinanet.model_se_resnext
 import pytorch_retinanet.model_dpn
+import pytorch_retinanet.model_pnasnet
 import pytorch_retinanet.dataloader
 
 import config
+import utils
 from config import CROP_SIZE, TEST_DIR
 import matplotlib.pyplot as plt
 
@@ -102,6 +107,27 @@ MODELS = {
         args=dict(num_classes=1, pretrained=True),
         img_size=512,
         batch_size=4,
+        dataset_args=dict()
+    ),
+    'pnas_256': ModelInfo(
+        factory=pytorch_retinanet.model_pnasnet.pnasnet5large,
+        args=dict(num_classes=1, pretrained=True),
+        img_size=256,
+        batch_size=8,
+        dataset_args=dict()
+    ),
+    'pnas_512': ModelInfo(
+        factory=pytorch_retinanet.model_pnasnet.pnasnet5large,
+        args=dict(num_classes=1, pretrained=True),
+        img_size=512,
+        batch_size=4,
+        dataset_args=dict()
+    ),
+    'pnas_512_bs12': ModelInfo(
+        factory=pytorch_retinanet.model_pnasnet.pnasnet5large,
+        args=dict(num_classes=1, pretrained=True),
+        img_size=512,
+        batch_size=8,
         dataset_args=dict()
     ),
 }
@@ -233,6 +259,7 @@ def train(model_name, fold, run=None):
 
                 classification_loss = classification_loss.mean()
                 regression_loss = regression_loss.mean()
+                global_classification_loss = global_classification_loss.mean()
                 loss = classification_loss + regression_loss + global_classification_loss
 
                 loss_hist_valid.append(float(loss))
@@ -334,7 +361,7 @@ def check(model_name, fold, checkpoint):
         print(nms_scores)
 
 
-def generate_predictions(model_name, run, fold):
+def generate_predictions(model_name, run, fold, from_epoch=4, to_epoch=100):
     run_str = '' if run is None or run == '' else f'_{run}'
     predictions_dir = f'../output/oof2/{model_name}{run_str}_fold_{fold}'
     os.makedirs(predictions_dir, exist_ok=True)
@@ -342,7 +369,11 @@ def generate_predictions(model_name, run, fold):
     model_info = MODELS[model_name]
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    for epoch_num in range(4, 100):
+    for epoch_num in range(from_epoch, to_epoch):
+        prediction_fn = f'{predictions_dir}/{epoch_num:03}.pkl'
+        if os.path.exists(prediction_fn):
+            continue
+        print('epoch', epoch_num)
         checkpoint = f'checkpoints/{model_name}{run_str}_fold_{fold}/{model_name}_{epoch_num:03}.pt'
         try:
             model = torch.load(checkpoint, map_location=device)
@@ -380,7 +411,7 @@ def generate_predictions(model_name, run, fold):
             oof['scores'].append(nms_scores)
             oof['category'].append(global_classification)
 
-        pickle.dump(oof, open(f'{predictions_dir}/{epoch_num:03}.pkl', 'wb'))
+        pickle.dump(oof, open(prediction_fn, 'wb'))
 
 
 def p1p2_to_xywh(p1p2):
@@ -388,9 +419,7 @@ def p1p2_to_xywh(p1p2):
 
     xywh[:, :2] = p1p2[:, :2]
     xywh[:, 2:4] = p1p2[:, 2:4] - p1p2[:, :2]
-
     return xywh
-
 
 
 def check_metric(model_name, run, fold):
@@ -400,13 +429,14 @@ def check_metric(model_name, run, fold):
 
     all_scores = []
 
-    for epoch_num in range(4, 100):
-        print('epoch ', epoch_num)
+    for epoch_num in range(100):
         fn = f'{predictions_dir}/{epoch_num:03}.pkl'
         try:
             oof = pickle.load(open(fn, 'rb'))
         except FileNotFoundError:
-            break
+            continue
+
+        print('epoch ', epoch_num)
         epoch_scores = []
         nb_images = len(oof['scores'])
         for threshold in thresholds:
@@ -426,8 +456,8 @@ def check_metric(model_name, run, fold):
                     # if category > 0.5 and scores[0] < 0.2:
                     #     scores[0] *= 2
 
-                mask = scores * category * 10 > threshold
-                # mask = scores * 5 > threshold
+                # mask = scores * category * 10 > threshold
+                mask = scores * 5 > threshold
 
                 if gt_boxes[0, 4] == -1.0:
                     if np.any(mask):
@@ -452,6 +482,78 @@ def check_metric(model_name, run, fold):
     plt.show()
 
 
+def prepare_submission(model_name, run, fold, epoch_num):
+    run_str = '' if run is None or run == '' else f'_{run}'
+    predictions_dir = f'../output/oof2/{model_name}{run_str}_fold_{fold}'
+    os.makedirs(predictions_dir, exist_ok=True)
+
+    model_info = MODELS[model_name]
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    checkpoint = f'checkpoints/{model_name}{run_str}_fold_{fold}/{model_name}_{epoch_num:03}.pt'
+    model = torch.load(checkpoint, map_location=device)
+    model = model.to(device)
+    model.eval()
+
+    sample_submission = pd.read_csv('../input/stage_1_sample_submission.csv')
+
+    img_size = model_info.img_size
+    submission = open('../submissions/sub5.csv', 'w')
+    submission.write('patientId,PredictionString\n')
+
+    for patient_id in sample_submission.patientId:
+        dcm_data = pydicom.read_file(f'{config.TEST_DIR}/{patient_id}.dcm')
+        img = dcm_data.pixel_array
+        # img = img / 255.0
+        img = skimage.transform.resize(img, (img_size, img_size), order=1)
+        # utils.print_stats('img', img)
+
+        img_tensor = torch.zeros(1, img_size, img_size, 1)
+        img_tensor[0, :, :, 0] = torch.from_numpy(img)
+        img_tensor = img_tensor.permute(0, 3, 1, 2)
+
+        nms_scores, global_classification, transformed_anchors = \
+            model(img_tensor.cuda(), return_loss=False, return_boxes=True)
+
+        scores = nms_scores.cpu().detach().numpy()
+        category = global_classification.cpu().detach().numpy()
+        boxes = transformed_anchors.cpu().detach().numpy()
+        category = np.exp(category[0, 2])
+
+        if len(scores):
+            scores[scores < scores[0] * 0.5] = 0.0
+
+            # if category > 0.5 and scores[0] < 0.2:
+            #     scores[0] *= 2
+
+        # threshold = 0.25
+        # mask = scores * category * 10 > threshold
+
+        threshold = 0.5
+        mask = scores * 5 > threshold
+
+        submission_str = ''
+
+        # plt.imshow(dcm_data.pixel_array)
+
+        if np.any(mask):
+            boxes_selected = p1p2_to_xywh(boxes[mask])  # x y w h format
+            boxes_selected *= 1024.0 / img_size
+            scores_selected = scores[mask]
+
+            for i in range(scores_selected.shape[0]):
+                x, y, w, h = boxes_selected[i]
+                submission_str += f' {scores_selected[i]:.3f} {x:.1f} {y:.1f} {w:.1f} {h:.1f}'
+                # plt.gca().add_patch(plt.Rectangle((x,y), width=w, height=h, fill=False, edgecolor='r', linewidth=2))
+
+        print(f'{patient_id},{submission_str}      {category:.2f}')
+        submission.write(f'{patient_id},{submission_str}\n')
+        # plt.show()
+
+
+
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('action', type=str, default='check')
@@ -460,6 +562,8 @@ if __name__ == '__main__':
     parser.add_argument('--fold', type=int, default=-1)
     parser.add_argument('--weights', type=str, default='')
     parser.add_argument('--epoch', type=int, default=-1)
+    parser.add_argument('--from-epoch', type=int, default=2)
+    parser.add_argument('--to-epoch', type=int, default=100)
 
     args = parser.parse_args()
     action = args.action
@@ -482,4 +586,8 @@ if __name__ == '__main__':
         check_metric(model_name=model, run=args.run, fold=args.fold)
 
     if action == 'generate_predictions':
-        generate_predictions(model_name=model, run=args.run, fold=args.fold)
+        generate_predictions(model_name=model, run=args.run, fold=args.fold,
+                             from_epoch=args.from_epoch, to_epoch=args.to_epoch)
+
+    if action == 'prepare_submission':
+        prepare_submission(model_name=model, run=args.run, fold=args.fold, epoch_num=args.epoch)

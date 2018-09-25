@@ -5,6 +5,7 @@ import torch
 import torch.utils.model_zoo as model_zoo
 
 from pretrainedmodels.models import senet
+from torchsummary import summary
 from .model import RetinaNet
 
 
@@ -122,3 +123,8 @@ def se_resnext101(num_classes, pretrained=False):
     model = RetinaNet(encoder=encoder, num_classes=num_classes)
     return model
 
+
+# if __name__ == '__main__':
+# encoder = SeResNetXtEncoder()
+# encoder.cuda()
+# summary(encoder, (1, 512, 512))
