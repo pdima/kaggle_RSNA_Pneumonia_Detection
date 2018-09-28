@@ -110,7 +110,7 @@ class SeResNetXtEncoder(nn.Module):
         return x1, x2, x3, x4
 
 
-def se_resnext101(num_classes, pretrained=False):
+def se_resnext101(num_classes, pretrained=False, dropout=0.5):
     """Constructs a ResNet-101 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
@@ -120,7 +120,7 @@ def se_resnext101(num_classes, pretrained=False):
         encoder.load_state_dict(model_zoo.load_url(
             senet.pretrained_settings['se_resnext101_32x4d']['imagenet']['url'], model_dir='models'), strict=False)
 
-    model = RetinaNet(encoder=encoder, num_classes=num_classes)
+    model = RetinaNet(encoder=encoder, num_classes=num_classes, dropout_cls=dropout, dropout_global_cls=dropout)
     return model
 
 

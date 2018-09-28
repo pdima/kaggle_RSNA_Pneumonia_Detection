@@ -122,7 +122,7 @@ class RegressionModel(nn.Module):
         return out.contiguous().view(out.shape[0], -1, 4)
 
 class ClassificationModel(nn.Module):
-    def __init__(self, num_features_in, num_anchors=9, num_classes=80, prior=0.01, feature_size=256):
+    def __init__(self, num_features_in, num_anchors=9, num_classes=80, prior=0.01, feature_size=256, dropout=0.5):
         super(ClassificationModel, self).__init__()
 
         self.num_classes = num_classes
@@ -143,6 +143,8 @@ class ClassificationModel(nn.Module):
         self.output = nn.Conv2d(feature_size, num_anchors*num_classes, kernel_size=3, padding=1)
         self.output_act = nn.Sigmoid()
 
+        self.dropout = dropout
+
     def forward(self, x):
 
         out = self.conv1(x)
@@ -156,6 +158,9 @@ class ClassificationModel(nn.Module):
 
         out = self.conv4(out)
         out = self.act4(out)
+
+        if self.dropout > 0:
+            out = F.dropout(out, self.dropout, self.training)
 
         out = self.output(out)
         out = self.output_act(out)
@@ -171,7 +176,7 @@ class ClassificationModel(nn.Module):
 
 
 class GlobalClassificationModel(nn.Module):
-    def __init__(self, num_features_in, num_classes=80, feature_size=256):
+    def __init__(self, num_features_in, num_classes=80, feature_size=256, dropout=0.5):
         super().__init__()
 
         self.num_classes = num_classes
@@ -179,15 +184,24 @@ class GlobalClassificationModel(nn.Module):
         self.fc = nn.Linear(feature_size*2, num_classes)
         self.output_act = nn.LogSoftmax(dim=-1)
 
+        self.dropout = dropout
+
     def forward(self, x):
         out = F.max_pool2d(x, 2)
         out = self.conv1(out)
         out = F.relu(out)
 
+        # if self.dropout > 0:
+        #     out = F.dropout(out, self.dropout, self.training)
+
         avg_pool = F.avg_pool2d(out, out.shape[2:])
         max_pool = F.max_pool2d(out, out.shape[2:])
         avg_max_pool = torch.cat((avg_pool, max_pool), 1)
         out = avg_max_pool.view(avg_max_pool.size(0), -1)
+
+        if self.dropout > 0:
+            out = F.dropout(out, self.dropout, self.training)
+
         out = self.fc(out)
         out = self.output_act(out)
 
@@ -208,7 +222,7 @@ class RetinaNetEncoder(nn.Module):
 
 
 class RetinaNet(nn.Module):
-    def __init__(self, encoder: RetinaNetEncoder, num_classes):
+    def __init__(self, encoder: RetinaNetEncoder, num_classes, dropout_cls=0.5, dropout_global_cls=0.5):
         super(RetinaNet, self).__init__()
 
         # self.encoder = encoder
@@ -217,8 +231,8 @@ class RetinaNet(nn.Module):
         self.fpn = PyramidFeatures(fpn_sizes[0], fpn_sizes[1], fpn_sizes[2], fpn_sizes[3])
 
         self.regressionModel = RegressionModel(256)
-        self.classificationModel = ClassificationModel(256, num_classes=num_classes)
-        self.globalClassificationModel = GlobalClassificationModel(fpn_sizes[-1], num_classes=3, feature_size=256)
+        self.classificationModel = ClassificationModel(256, num_classes=num_classes, dropout=dropout_cls)
+        self.globalClassificationModel = GlobalClassificationModel(fpn_sizes[-1], num_classes=3, feature_size=256, dropout=dropout_global_cls)
         self.globalClassificationLoss = nn.NLLLoss()
 
         self.anchors = Anchors(pyramid_levels=[2, 3, 4, 5, 6, 7])
@@ -260,7 +274,31 @@ class RetinaNet(nn.Module):
         # for layer in [self.conv1, self.bn1, self.layer1, self.layer2, self.layer3, self.layer4]:
         #     layer.eval()
 
-    def forward(self, inputs, return_loss, return_boxes):
+    def boxes(self, img_batch, regression, classification, global_classification, anchors):
+        transformed_anchors = self.regressBoxes(anchors, regression)
+        transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
+
+        scores = torch.max(classification, dim=2, keepdim=True)[0]
+
+        scores_over_thresh = (scores > 0.025)[0, :, 0]
+
+        if scores_over_thresh.sum() == 0:
+            # no boxes to NMS, just return
+            return [torch.zeros(0), global_classification, torch.zeros(0, 4)]
+        else:
+            classification = classification[:, scores_over_thresh, :]
+            transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
+            scores = scores[:, scores_over_thresh, :]
+
+            # use very low threshold of 0.05 as boxes should not overlap
+            anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.05)
+
+            nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
+
+            return [nms_scores, global_classification, transformed_anchors[0, anchors_nms_idx, :]]
+
+
+    def forward(self, inputs, return_loss, return_boxes, return_raw=False):
         if return_loss:
             img_batch, annotations, global_annotations = inputs
         else:
@@ -278,6 +316,9 @@ class RetinaNet(nn.Module):
 
         anchors = self.anchors(img_batch)
 
+        if return_raw:
+            return [regression, classification, torch.exp(global_classification), anchors]
+
         res = []
 
         if return_loss:
@@ -285,27 +326,11 @@ class RetinaNet(nn.Module):
             res += [self.globalClassificationLoss(global_classification, global_annotations)]
 
         if return_boxes:
-            transformed_anchors = self.regressBoxes(anchors, regression)
-            transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
-
-            scores = torch.max(classification, dim=2, keepdim=True)[0]
-
-            scores_over_thresh = (scores > 0.05)[0, :, 0]
-
-            if scores_over_thresh.sum() == 0:
-                # no boxes to NMS, just return
-                res += [torch.zeros(0), global_classification, torch.zeros(0, 4)]
-            else:
-                classification = classification[:, scores_over_thresh, :]
-                transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
-                scores = scores[:, scores_over_thresh, :]
-
-                # use very low threshold of 0.05 as boxes should not overlap
-                anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.05)
-
-                nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
-
-                res += [nms_scores, global_classification, transformed_anchors[0, anchors_nms_idx, :]]
+            res += self.boxes(img_batch=img_batch,
+                              regression=regression,
+                              classification=classification,
+                              global_classification=global_classification,
+                              anchors=anchors)
 
         return res
 

@@ -14,16 +14,19 @@ import pydicom
 
 import skimage.transform
 from collections import namedtuple, defaultdict
+from imgaug import augmenters as iaa
+
 
 import matplotlib.pyplot as plt
 
 from config import *
 
 class DetectionDataset(Dataset):
-    def __init__(self, fold, is_training, img_size, images=None):
+    def __init__(self, fold, is_training, img_size, images=None, augmentation_level=10):
         self.fold = fold
         self.is_training = is_training
         self.img_size = img_size
+        self.augmentation_level = augmentation_level
         self.categories = ['No Lung Opacity / Not Normal', 'Normal', 'Lung Opacity']
 
         samples = pd.read_csv('../input/stage_1_train_labels.csv')
@@ -97,16 +100,21 @@ class DetectionDataset(Dataset):
         img = self.load_image(patient_id)
         img_h, img_w = img.shape[:2]
 
+        augmentation_sigma = {
+            10: dict(scale=0.1, angle=5.0, shear=2.5, gamma=0.2, hflip=False),
+            20: dict(scale=0.15, angle=6.0, shear=4.0, gamma=0.25, hflip=np.random.choice([True, False])),
+        }[self.augmentation_level]
+
         if self.is_training:
             cfg = utils.TransformCfg(
                 crop_size=self.img_size,
                 src_center_x=img_w/2 + np.random.uniform(-32, 32),
                 src_center_y=img_h/2 + np.random.uniform(-32, 32),
-                scale_x=self.img_size / img_w * (2 ** np.random.normal(0, 0.1)),
-                scale_y=self.img_size / img_h * (2 ** np.random.normal(0, 0.1)),
-                angle=np.random.normal(0, 5),
-                shear=np.random.normal(0, 2.5),
-                hflip=False,
+                scale_x=self.img_size / img_w * (2 ** np.random.normal(0, augmentation_sigma['scale'])),
+                scale_y=self.img_size / img_h * (2 ** np.random.normal(0, augmentation_sigma['scale'])),
+                angle=np.random.normal(0, augmentation_sigma['angle']),
+                shear=np.random.normal(0, augmentation_sigma['shear']),
+                hflip=augmentation_sigma['hflip'],
                 vflip=False
             )
         else:
@@ -124,7 +132,16 @@ class DetectionDataset(Dataset):
 
         crop = cfg.transform_image(img)
         if self.is_training:
-            crop = np.power(crop, 2.0 ** np.random.normal(0, 0.2))
+            crop = np.power(crop, 2.0 ** np.random.normal(0, augmentation_sigma['gamma']))
+            if self.augmentation_level > 10:
+                aug = iaa.Sequential(
+                    [
+                        iaa.Sometimes(0.1, iaa.CoarseSaltAndPepper(p=(0.01, 0.01), size_percent=(0.1, 0.2))),
+                        iaa.Sometimes(0.5, iaa.GaussianBlur(sigma=(0.0, 2.0))),
+                        iaa.Sometimes(0.5, iaa.AdditiveGaussianNoise(scale=(0, 0.04 * 255)))
+                    ]
+                )
+                crop = aug.augment_image(np.clip(np.stack([crop, crop, crop], axis=2) * 255, 0, 255).astype(np.uint8))[:,:,0].astype(np.float32) / 255.0
 
         annotations = []
         # print('patient_id', patient_id)
@@ -169,6 +186,13 @@ def check_dataset():
     #     )
     # plt.show()
 
+    ds.is_training = False
+    plt.imshow(ds[0]['img'])
+
+    plt.figure()
+    ds.is_training = True
+
+
     for sample in ds:
         plt.cla()
         plt.imshow(sample['img'])
@@ -179,6 +203,38 @@ def check_dataset():
             # print(p0, p1)
             plt.gca().add_patch(plt.Rectangle(p0, width=(p1-p0)[0], height=(p1-p0)[1], fill=False, edgecolor='r', linewidth=2))
         plt.show()
+
+
+def check_augmentations():
+    with utils.timeit_context('load ds'):
+        ds = DetectionDataset(fold=0, is_training=True, img_size=512, images={}, augmentation_level=20)
+
+        sample_num = 2
+
+        ds.is_training = False
+        plt.imshow(ds[sample_num]['img'])
+        for annot in ds[sample_num]['annot']:
+            p0 = annot[0:2]
+            p1 = annot[2:4]
+
+            # print(p0, p1)
+            plt.gca().add_patch(
+                plt.Rectangle(p0, width=(p1 - p0)[0], height=(p1 - p0)[1], fill=False, edgecolor='r', linewidth=2))
+
+        plt.figure()
+        ds.is_training = True
+
+        for i in range(100):
+            sample = ds[sample_num]
+            plt.imshow(sample['img'])
+            for annot in sample['annot']:
+                p0 = annot[0:2]
+                p1 = annot[2:4]
+
+                # print(p0, p1)
+                plt.gca().add_patch(
+                    plt.Rectangle(p0, width=(p1 - p0)[0], height=(p1 - p0)[1], fill=False, edgecolor='r', linewidth=2))
+            plt.show()
 
 
 def check_performance():
@@ -199,5 +255,6 @@ def check_performance():
 
 
 if __name__ == '__main__':
-    check_dataset()
+    # check_dataset()
+    check_augmentations()
     # check_performance()

@@ -36,7 +36,7 @@ class PNasnetEncoder(RetinaNetEncoder):
         return x_stem_0, x_cell_3, x_cell_7, x_cell_11
 
 
-def pnasnet5large(num_classes, pretrained=True):
+def pnasnet5large(num_classes, pretrained=True, dropout=0.0):
     """Constructs a DPN model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
@@ -47,5 +47,5 @@ def pnasnet5large(num_classes, pretrained=True):
         encoder.encoder.load_state_dict(model_zoo.load_url(
             pnasnet.pretrained_settings['pnasnet5large']['imagenet+background']['url'], model_dir='models'), strict=False)
 
-    model = RetinaNet(encoder=encoder, num_classes=num_classes)
+    model = RetinaNet(encoder=encoder, num_classes=num_classes, dropout_cls=dropout, dropout_global_cls=dropout)
     return model
