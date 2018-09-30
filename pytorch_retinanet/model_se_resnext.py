@@ -10,10 +10,10 @@ from .model import RetinaNet
 
 
 class SeResNetXtEncoder(nn.Module):
-    def __init__(self):
+    def __init__(self, layers):
         super().__init__()
         block = senet.SEResNeXtBottleneck
-        layers = [3, 4, 23, 3]
+        # layers = [3, 4, 23, 3]
         groups = 32
         reduction = 16
         inplanes = 64
@@ -115,7 +115,7 @@ def se_resnext101(num_classes, pretrained=False, dropout=0.5):
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    encoder = SeResNetXtEncoder()
+    encoder = SeResNetXtEncoder(layers=[3, 4, 23, 3])
     if pretrained:
         encoder.load_state_dict(model_zoo.load_url(
             senet.pretrained_settings['se_resnext101_32x4d']['imagenet']['url'], model_dir='models'), strict=False)
@@ -123,6 +123,19 @@ def se_resnext101(num_classes, pretrained=False, dropout=0.5):
     model = RetinaNet(encoder=encoder, num_classes=num_classes, dropout_cls=dropout, dropout_global_cls=dropout)
     return model
 
+
+def se_resnext50(num_classes, pretrained=False, dropout=0.5):
+    """Constructs a ResNet-101 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    encoder = SeResNetXtEncoder(layers=[3, 4, 6, 3])
+    if pretrained:
+        encoder.load_state_dict(model_zoo.load_url(
+            senet.pretrained_settings['se_resnext50_32x4d']['imagenet']['url'], model_dir='models'), strict=False)
+
+    model = RetinaNet(encoder=encoder, num_classes=num_classes, dropout_cls=dropout, dropout_global_cls=dropout)
+    return model
 
 # if __name__ == '__main__':
 # encoder = SeResNetXtEncoder()

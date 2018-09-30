@@ -187,6 +187,20 @@ MODELS = {
         batch_size=16,
         dataset_args=dict(augmentation_level=20)
     ),
+    'resnet50_512': ModelInfo(
+        factory=pytorch_retinanet.model.resnet34,
+        args=dict(num_classes=1, pretrained=True, dropout_cls=0.5, dropout_global_cls=0.5),
+        img_size=512,
+        batch_size=12,
+        dataset_args=dict(augmentation_level=15)
+    ),
+    'se_resnext50_512': ModelInfo(
+        factory=pytorch_retinanet.model_se_resnext.se_resnext50,
+        args=dict(num_classes=1, pretrained=True, dropout=0.7),
+        img_size=512,
+        batch_size=8,
+        dataset_args=dict(augmentation_level=20)
+    ),
 }
 
 

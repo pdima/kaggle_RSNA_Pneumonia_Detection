@@ -431,7 +431,7 @@ def resnet50(num_classes, pretrained=False, **kwargs):
     if pretrained:
         encoder.load_state_dict(model_zoo.load_url(model_urls['resnet50'], model_dir='models'), strict=False)
 
-    model = RetinaNet(encoder=encoder, num_classes=num_classes)
+    model = RetinaNet(encoder=encoder, num_classes=num_classes, **kwargs)
     return model
 
 def resnet101(num_classes, pretrained=False, **kwargs):
@@ -443,7 +443,7 @@ def resnet101(num_classes, pretrained=False, **kwargs):
     if pretrained:
         encoder.load_state_dict(model_zoo.load_url(model_urls['resnet101'], model_dir='models'), strict=False)
 
-    model = RetinaNet(encoder=encoder, num_classes=num_classes)
+    model = RetinaNet(encoder=encoder, num_classes=num_classes, **kwargs)
     return model
 
 
@@ -456,5 +456,5 @@ def resnet152(num_classes, pretrained=False, **kwargs):
     if pretrained:
         encoder.load_state_dict(model_zoo.load_url(model_urls['resnet152'], model_dir='models'), strict=False)
 
-    model = RetinaNet(encoder=encoder, num_classes=num_classes)
+    model = RetinaNet(encoder=encoder, num_classes=num_classes, **kwargs)
     return model

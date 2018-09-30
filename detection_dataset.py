@@ -102,6 +102,7 @@ class DetectionDataset(Dataset):
 
         augmentation_sigma = {
             10: dict(scale=0.1, angle=5.0, shear=2.5, gamma=0.2, hflip=False),
+            15: dict(scale=0.15, angle=6.0, shear=4.0, gamma=0.2, hflip=np.random.choice([True, False])),
             20: dict(scale=0.15, angle=6.0, shear=4.0, gamma=0.25, hflip=np.random.choice([True, False])),
         }[self.augmentation_level]
 
@@ -133,12 +134,20 @@ class DetectionDataset(Dataset):
         crop = cfg.transform_image(img)
         if self.is_training:
             crop = np.power(crop, 2.0 ** np.random.normal(0, augmentation_sigma['gamma']))
-            if self.augmentation_level > 10:
+            if self.augmentation_level == 20:
                 aug = iaa.Sequential(
                     [
                         iaa.Sometimes(0.1, iaa.CoarseSaltAndPepper(p=(0.01, 0.01), size_percent=(0.1, 0.2))),
                         iaa.Sometimes(0.5, iaa.GaussianBlur(sigma=(0.0, 2.0))),
                         iaa.Sometimes(0.5, iaa.AdditiveGaussianNoise(scale=(0, 0.04 * 255)))
+                    ]
+                )
+                crop = aug.augment_image(np.clip(np.stack([crop, crop, crop], axis=2) * 255, 0, 255).astype(np.uint8))[:,:,0].astype(np.float32) / 255.0
+            if self.augmentation_level == 15:
+                aug = iaa.Sequential(
+                    [
+                        iaa.Sometimes(0.25, iaa.GaussianBlur(sigma=(0.0, 1.0))),
+                        iaa.Sometimes(0.25, iaa.AdditiveGaussianNoise(scale=(0, 0.02 * 255)))
                     ]
                 )
                 crop = aug.augment_image(np.clip(np.stack([crop, crop, crop], axis=2) * 255, 0, 255).astype(np.uint8))[:,:,0].astype(np.float32) / 255.0
