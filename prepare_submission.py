@@ -215,7 +215,10 @@ def prepare_test_predictions(model_name, run, epoch_num):
             dcm_data = pydicom.read_file(f'{config.TEST_DIR}/{patient_id}.dcm')
             img = dcm_data.pixel_array
             # img = img / 255.0
-            img = skimage.transform.resize(img, (img_size, img_size), order=1)
+            if img_size != 1024:
+                img = skimage.transform.resize(img, (img_size, img_size), order=1)
+            else:
+                img = img.astype(np.float32) / 255.0
             # utils.print_stats('img', img)
 
             img_tensor = torch.zeros(1, img_size, img_size, 1)
@@ -224,36 +227,13 @@ def prepare_test_predictions(model_name, run, epoch_num):
             img_tensor = img_tensor.cuda()
 
             model_raw_results = model(img_tensor, return_loss=False, return_boxes=False, return_raw=True)
-            model_raw_results_cpu = [r.cpu().detach().numpy() for r in model_raw_results]
+            # discard last item - anchors
+            model_raw_results_cpu = [r.cpu().detach().numpy() for r in model_raw_results[:-1]]
 
             pickle.dump(model_raw_results_cpu, open(f'{output_dir}/{patient_id}.pkl', 'wb'))
 
 
-def reduce_wh(orig_sub, updated_sub, reduce_size = 0.05):
-    submission = open(f'../submissions/{updated_sub}.csv', 'w')
-    # submission.write('patientId,PredictionString\n')
-
-    for line in open(f'../submissions/{orig_sub}.csv', 'r'):
-        if line.startswith('patientId'):
-            submission.write(line + '\n')
-            continue
-
-        submission_str = ''
-
-        patient_id, sub = line.split(',')
-        items = [float(i) for i in sub.split()]
-        nb_rects = len(items) // 5
-        for rect_id in range(nb_rects):
-            prob, x, y, w, h = items[rect_id*5: rect_id*5+5]
-            x += w * reduce_size / 2
-            y += h * reduce_size / 2
-            w *= 1 - reduce_size
-            h *= 1 - reduce_size
-            submission_str += f' {prob:.3f} {x:.1f} {y:.1f} {w:.1f} {h:.1f}'
-        submission.write(f'{patient_id},{submission_str}\n')
-
-
-def prepare_submission_from_saved(model_name, run, epoch_nums, threshold, submission_name, use_global_cat):
+def prepare_submission_from_saved(model_name, run, epoch_nums, threshold, submission_name, use_global_cat, size_scale):
     run_str = '' if run is None or run == '' else f'_{run}'
 
     model_info = MODELS[model_name]
@@ -274,11 +254,13 @@ def prepare_submission_from_saved(model_name, run, epoch_nums, threshold, submis
     submission = open(f'../submissions/{submission_name}.csv', 'w')
     submission.write('patientId,PredictionString\n')
 
+    anchors = model.anchors(img_tensor)
+
     for patient_id in sample_submission.patientId:
         regression_results = []
         classification_results = []
         global_classification_results = []
-        anchors = []
+        # anchors = []
 
         for epoch_num in epoch_nums:
             for fold in range(4):
@@ -289,7 +271,7 @@ def prepare_submission_from_saved(model_name, run, epoch_nums, threshold, submis
                 regression_results.append(model_raw_result[0])
                 classification_results.append(model_raw_result[1])
                 global_classification_results.append(model_raw_result[2])
-                anchors = model_raw_result[3]  # anchors all the same
+                # anchors = model_raw_result[3]  # anchors all the same
 
         regression_results = np.concatenate(regression_results, axis=0)
 
@@ -297,7 +279,10 @@ def prepare_submission_from_saved(model_name, run, epoch_nums, threshold, submis
         regression_results_pos = np.mean(regression_results_pos, axis=0, keepdims=True)
 
         regression_results_size = regression_results[:, :, 2:]
-        regression_results_size = np.percentile(regression_results_size, q=10, axis=0, keepdims=True)
+        regression_results_size_p75 = np.percentile(regression_results_size, q=75, axis=0, keepdims=True)
+        regression_results_size = np.percentile(regression_results_size, q=25, axis=0, keepdims=True)
+
+        regression_results_size += (regression_results_size - regression_results_size_p75) * size_scale
 
         regression_results = np.concatenate([regression_results_pos, regression_results_size], axis=2).astype(np.float32)
 
@@ -318,7 +303,7 @@ def prepare_submission_from_saved(model_name, run, epoch_nums, threshold, submis
             torch.from_numpy(regression_results).to(device),
             torch.from_numpy(classification_results).to(device),
             torch.from_numpy(global_classification_results).to(device),
-            torch.from_numpy(anchors).to(device)
+            anchors
         )
         # nms_scores, global_classification, transformed_anchors = \
         #     model(img_tensor.cuda(), return_loss=False, return_boxes=True)
@@ -356,6 +341,38 @@ def prepare_submission_from_saved(model_name, run, epoch_nums, threshold, submis
         print(f'{patient_id},{submission_str}      {category:.2f}')
         submission.write(f'{patient_id},{submission_str}\n')
         # plt.show()
+    submission.close()
+    check_submission_stat(submission_name)
+
+
+def check_submission_stat(sub_name):
+    all_rects = []
+    if sub_name.endswith('.csv'):
+        sub_name = sub_name[:-4]
+
+    nb_non_empy = 0
+
+    for line in open(f'../submissions/{sub_name}.csv', 'r'):
+        if line.startswith('patientId'):
+            continue
+
+        patient_id, sub = line.split(',')
+        items = [float(i) for i in sub.split()]
+        nb_rects = len(items) // 5
+        for rect_id in range(nb_rects):
+            all_rects.append(items[rect_id*5: rect_id*5+5])
+            # prob, x, y, w, h = items[rect_id*5: rect_id*5+5]
+
+        if nb_rects > 0:
+            nb_non_empy += 1
+
+    all_rects = np.array(all_rects)
+
+    w = all_rects[:, -2]
+    h = all_rects[:, -1]
+
+    print(f'w mean {np.mean(w):.1f} w med {np.median(w):.1f}  h mean {np.mean(h):.1f} h med {np.median(h):.1f}  '
+          f'area mean {np.mean(w*h):.1f} area med {np.median(w*h):.1f}   {nb_non_empy} {sub_name}')
 
 
 if __name__ == '__main__':
@@ -370,6 +387,7 @@ if __name__ == '__main__':
     parser.add_argument('--to-epoch', type=int, default=100)
     parser.add_argument('--size_perc', type=int, default=10)
     parser.add_argument('--threshold', type=float, default=0.3)
+    parser.add_argument('--size_scale', type=float, default=0.9)
     parser.add_argument('--use_global_cat', action='store_true')
     parser.add_argument('--submission', type=str, default='')
 
@@ -402,5 +420,9 @@ if __name__ == '__main__':
                                           epoch_nums=args.epoch,
                                           threshold=args.threshold,
                                           submission_name=args.submission,
-                                          use_global_cat=args.use_global_cat
+                                          use_global_cat=args.use_global_cat,
+                                          size_scale=args.size_scale
                                           )
+
+    if action == 'check_stat':
+        check_submission_stat(args.submission)
