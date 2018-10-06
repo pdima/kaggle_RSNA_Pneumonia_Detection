@@ -58,7 +58,7 @@ class InceptionResnetV2Encoder(RetinaNetEncoder):
         return res
 
 
-def inceptionresnetv2(num_classes, pretrained=True):
+def inceptionresnetv2(num_classes, pretrained=True, **kwargs):
     """Constructs a DPN model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
@@ -70,5 +70,5 @@ def inceptionresnetv2(num_classes, pretrained=True):
                                                            model_dir='models'),
                                         strict=False)
 
-    model = RetinaNet(encoder=encoder, num_classes=num_classes)
+    model = RetinaNet(encoder=encoder, num_classes=num_classes, **kwargs)
     return model

@@ -16,10 +16,13 @@ from tqdm import tqdm
 import metric
 
 import pytorch_retinanet.model
+import pytorch_retinanet.model_resnet
 import pytorch_retinanet.model_se_resnext
 import pytorch_retinanet.model_dpn
 import pytorch_retinanet.model_pnasnet
 import pytorch_retinanet.model_incresv2
+import pytorch_retinanet.model_xception
+import pytorch_retinanet.model_nasnet_mobile
 import pytorch_retinanet.dataloader
 
 import config
@@ -38,38 +41,40 @@ class ModelInfo:
                  args,
                  batch_size,
                  dataset_args,
+                 use_sgd=False,
                  img_size=512):
         self.factory = factory
         self.args = args
         self.batch_size = batch_size
         self.dataset_args = dataset_args
         self.img_size = img_size
+        self.use_sgd = use_sgd
 
 
 MODELS = {
     'resnet34_512': ModelInfo(
-        factory=pytorch_retinanet.model.resnet34,
+        factory=pytorch_retinanet.model_resnet.resnet34,
         args=dict(num_classes=1, pretrained=True),
         img_size=512,
         batch_size=8,
         dataset_args=dict()
     ),
     'resnet34_1024': ModelInfo(
-        factory=pytorch_retinanet.model.resnet34,
+        factory=pytorch_retinanet.model_resnet.resnet34,
         args=dict(num_classes=1, pretrained=True),
         img_size=1024,
         batch_size=4,
         dataset_args=dict()
     ),
     'resnet101_512': ModelInfo(
-        factory=pytorch_retinanet.model.resnet101,
+        factory=pytorch_retinanet.model_resnet.resnet101,
         args=dict(num_classes=1, pretrained=True),
         img_size=512,
         batch_size=6,
         dataset_args=dict(augmentation_level=20)
     ),
     'resnet152_512': ModelInfo(
-        factory=pytorch_retinanet.model.resnet152,
+        factory=pytorch_retinanet.model_resnet.resnet152,
         args=dict(num_classes=1, pretrained=True),
         img_size=512,
         batch_size=4,
@@ -103,6 +108,14 @@ MODELS = {
         batch_size=12,
         dataset_args=dict(augmentation_level=20)
     ),
+    'se_resnext101_512_sgd': ModelInfo(
+        factory=pytorch_retinanet.model_se_resnext.se_resnext101,
+        args=dict(num_classes=1, pretrained=True, dropout=0.5),
+        img_size=512,
+        batch_size=4,
+        use_sgd=True,
+        dataset_args=dict(augmentation_level=15)
+    ),
     'se_resnext101_256': ModelInfo(
         factory=pytorch_retinanet.model_se_resnext.se_resnext101,
         args=dict(num_classes=1, pretrained=True),
@@ -111,7 +124,7 @@ MODELS = {
         dataset_args=dict()
     ),
     'resnet34_256': ModelInfo(
-        factory=pytorch_retinanet.model.resnet34,
+        factory=pytorch_retinanet.model_resnet.resnet34,
         args=dict(num_classes=1, pretrained=True),
         img_size=256,
         batch_size=32,
@@ -136,6 +149,13 @@ MODELS = {
         args=dict(num_classes=1, pretrained=True),
         img_size=512,
         batch_size=4,
+        dataset_args=dict(augmentation_level=20)
+    ),
+    'dpn92_512_dr': ModelInfo(
+        factory=pytorch_retinanet.model_dpn.dpn92,
+        args=dict(num_classes=1, pretrained=True, dropout_cls=0.5, dropout_global_cls=0.5),
+        img_size=512,
+        batch_size=6,
         dataset_args=dict(augmentation_level=20)
     ),
     'pnas_256': ModelInfo(
@@ -180,6 +200,13 @@ MODELS = {
         batch_size=4,
         dataset_args=dict(augmentation_level=20)
     ),
+    'inc_resnet_v2_512_dr': ModelInfo(
+        factory=pytorch_retinanet.model_incresv2.inceptionresnetv2,
+        args=dict(num_classes=1, pretrained=True, dropout_cls=0.6, dropout_global_cls=0.6),
+        img_size=512,
+        batch_size=4,
+        dataset_args=dict(augmentation_level=20)
+    ),
     'inc_resnet_v2_256': ModelInfo(
         factory=pytorch_retinanet.model_incresv2.inceptionresnetv2,
         args=dict(num_classes=1, pretrained=True),
@@ -188,7 +215,7 @@ MODELS = {
         dataset_args=dict(augmentation_level=20)
     ),
     'resnet50_512': ModelInfo(
-        factory=pytorch_retinanet.model.resnet34,
+        factory=pytorch_retinanet.model_resnet.resnet34,
         args=dict(num_classes=1, pretrained=True, dropout_cls=0.5, dropout_global_cls=0.5),
         img_size=512,
         batch_size=12,
@@ -201,10 +228,38 @@ MODELS = {
         batch_size=8,
         dataset_args=dict(augmentation_level=20)
     ),
+    'nasnet_mobile_512': ModelInfo(
+        factory=pytorch_retinanet.model_nasnet_mobile.nasnet_mobile_model,
+        args=dict(num_classes=1, pretrained=True, dropout_cls=0.5, dropout_global_cls=0.5, use_l2_features=True),
+        img_size=512,
+        batch_size=8,
+        dataset_args=dict(augmentation_level=20)
+    ),
+    'nasnet_mobile_1024': ModelInfo(
+        factory=pytorch_retinanet.model_nasnet_mobile.nasnet_mobile_model,
+        args=dict(num_classes=1, pretrained=True, dropout_cls=0.5, dropout_global_cls=0.5, use_l2_features=False),
+        img_size=1024,
+        batch_size=3,
+        dataset_args=dict(augmentation_level=20)
+    ),
+    'nasnet_mobile_768': ModelInfo(
+        factory=pytorch_retinanet.model_nasnet_mobile.nasnet_mobile_model,
+        args=dict(num_classes=1, pretrained=True, dropout_cls=0.5, dropout_global_cls=0.5, use_l2_features=False),
+        img_size=768,
+        batch_size=6,
+        dataset_args=dict(augmentation_level=20, crop_source=768)
+    ),
+    'xception_512_dr': ModelInfo(
+        factory=pytorch_retinanet.model_xception.xception_model,
+        args=dict(num_classes=1, pretrained=True, dropout_cls=0.6, dropout_global_cls=0.6),
+        img_size=512,
+        batch_size=6,
+        dataset_args=dict(augmentation_level=20)
+    ),
 }
 
 
-def train(model_name, fold, run=None):
+def train(model_name, fold, run=None, resume_weights='', resume_epoch=0):
     model_info = MODELS[model_name]
 
     run_str = '' if run is None or run == '' else f'_{run}'
@@ -220,7 +275,13 @@ def train(model_name, fold, run=None):
     logger = Logger(tensorboard_dir)
 
     retinanet = model_info.factory(**model_info.args)
-    retinanet = retinanet.cuda()
+
+    if resume_weights != '':
+        print('load model from', resume_weights)
+        retinanet = torch.load(resume_weights).cuda()
+    else:
+        retinanet = retinanet.cuda()
+
     retinanet = torch.nn.DataParallel(retinanet).cuda()
 
     dataset_train = DetectionDataset(fold=fold, img_size=model_info.img_size, is_training=True, images={}, **model_info.dataset_args)
@@ -242,8 +303,30 @@ def train(model_name, fold, run=None):
 
     retinanet.training = True
 
-    optimizer = optim.Adam(retinanet.parameters(), lr=1e-5)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=4, verbose=True, factor=0.2)
+    if model_info.use_sgd:
+        # multi_lr
+        # optimizer = optim.SGD([
+        #         {'params': retinanet.module.encoder.parameters(), 'lr': 2e-4},
+        #         {'params': retinanet.module.fpn.parameters(), 'lr': 1e-3},
+        #         {'params': retinanet.module.regressionModel.parameters(), 'lr': 2e-3},
+        #         {'params': retinanet.module.classificationModel.parameters(), 'lr': 1e-3},
+        #         {'params': retinanet.module.globalClassificationModel.parameters(), 'lr': 1e-3},
+        #     ], lr=1e-3, momentum=0.95)
+        # multi_lr2
+        optimizer = optim.SGD([
+            {'params': retinanet.module.encoder.parameters(), 'lr': 2e-3},
+            {'params': retinanet.module.fpn.parameters(), 'lr': 1e-2},
+            {'params': retinanet.module.regressionModel.parameters(), 'lr': 2e-2},
+            {'params': retinanet.module.classificationModel.parameters(), 'lr': 1e-2},
+            {'params': retinanet.module.globalClassificationModel.parameters(), 'lr': 1e-2},
+        ], lr=1e-3, momentum=0.95)
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=4, verbose=True, factor=0.1)
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[8, 16, 20])
+        scheduler_by_epoch = True
+    else:
+        optimizer = optim.Adam(retinanet.parameters(), lr=1e-5)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=4, verbose=True, factor=0.2)
+        scheduler_by_epoch = False
 
     retinanet.train()
     retinanet.module.freeze_bn()
@@ -251,7 +334,7 @@ def train(model_name, fold, run=None):
     print('Num training images: {}'.format(len(dataset_train)))
     epochs = 32
 
-    for epoch_num in range(epochs):
+    for epoch_num in range(resume_epoch+1, epochs):
 
         retinanet.train()
         retinanet.module.freeze_bn()
@@ -298,6 +381,8 @@ def train(model_name, fold, run=None):
             del classification_loss
             del regression_loss
 
+        torch.save(retinanet.module, f'{checkpoints_dir}/{model_name}_{epoch_num:03}.pt')
+
         logger.scalar_summary('loss_train', np.mean(epoch_loss), epoch_num)
         logger.scalar_summary('loss_train_classification', np.mean(loss_cls_hist), epoch_num)
         logger.scalar_summary('loss_train_global_classification', np.mean(loss_cls_global_hist), epoch_num)
@@ -331,7 +416,7 @@ def train(model_name, fold, run=None):
                 classification_loss = classification_loss.mean()
                 regression_loss = regression_loss.mean()
                 global_classification_loss = global_classification_loss.mean()
-                loss = classification_loss + regression_loss + global_classification_loss
+                loss = classification_loss + regression_loss + global_classification_loss * 0.1
 
                 loss_hist_valid.append(float(loss))
                 loss_cls_hist_valid.append(float(classification_loss))
@@ -359,9 +444,12 @@ def train(model_name, fold, run=None):
             #          category=np.concatenate(oof['category'], axis=0)
             #          )
 
-        scheduler.step(np.mean(epoch_loss))
+        if scheduler_by_epoch:
+            scheduler.step(epoch=epoch_num)
+        else:
+            scheduler.step(np.mean(loss_reg_hist_valid))
         # if epoch_num % 4 == 0:
-        torch.save(retinanet.module, f'{checkpoints_dir}/{model_name}_{epoch_num:03}.pt')
+
 
     retinanet.eval()
     torch.save(retinanet, f'{checkpoints_dir}/{model_name}_final.pt')
@@ -432,7 +520,7 @@ def check(model_name, fold, checkpoint):
         print(nms_scores)
 
 
-def generate_predictions(model_name, run, fold, from_epoch=4, to_epoch=100):
+def generate_predictions(model_name, run, fold, from_epoch=0, to_epoch=100):
     run_str = '' if run is None or run == '' else f'_{run}'
     predictions_dir = f'../output/oof2/{model_name}{run_str}_fold_{fold}'
     os.makedirs(predictions_dir, exist_ok=True)
@@ -446,6 +534,7 @@ def generate_predictions(model_name, run, fold, from_epoch=4, to_epoch=100):
             continue
         print('epoch', epoch_num)
         checkpoint = f'checkpoints/{model_name}{run_str}_fold_{fold}/{model_name}_{epoch_num:03}.pt'
+        print('load', checkpoint)
         try:
             model = torch.load(checkpoint, map_location=device)
         except FileNotFoundError:
@@ -553,75 +642,6 @@ def check_metric(model_name, run, fold):
     plt.show()
 
 
-def prepare_submission(model_name, run, fold, epoch_num, threshold, submission_name):
-    run_str = '' if run is None or run == '' else f'_{run}'
-    predictions_dir = f'../output/oof2/{model_name}{run_str}_fold_{fold}'
-    os.makedirs(predictions_dir, exist_ok=True)
-
-    model_info = MODELS[model_name]
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    checkpoint = f'checkpoints/{model_name}{run_str}_fold_{fold}/{model_name}_{epoch_num:03}.pt'
-    model = torch.load(checkpoint, map_location=device)
-    model = model.to(device)
-    model.eval()
-
-    sample_submission = pd.read_csv('../input/stage_1_sample_submission.csv')
-
-    img_size = model_info.img_size
-    submission = open(f'../submissions/{submission_name}.csv', 'w')
-    submission.write('patientId,PredictionString\n')
-
-    for patient_id in sample_submission.patientId:
-        dcm_data = pydicom.read_file(f'{config.TEST_DIR}/{patient_id}.dcm')
-        img = dcm_data.pixel_array
-        # img = img / 255.0
-        img = skimage.transform.resize(img, (img_size, img_size), order=1)
-        # utils.print_stats('img', img)
-
-        img_tensor = torch.zeros(1, img_size, img_size, 1)
-        img_tensor[0, :, :, 0] = torch.from_numpy(img)
-        img_tensor = img_tensor.permute(0, 3, 1, 2)
-
-        nms_scores, global_classification, transformed_anchors = \
-            model(img_tensor.cuda(), return_loss=False, return_boxes=True)
-
-        scores = nms_scores.cpu().detach().numpy()
-        category = global_classification.cpu().detach().numpy()
-        boxes = transformed_anchors.cpu().detach().numpy()
-        category = np.exp(category[0, 2])
-
-        if len(scores):
-            scores[scores < scores[0] * 0.5] = 0.0
-
-            # if category > 0.5 and scores[0] < 0.2:
-            #     scores[0] *= 2
-
-        # threshold = 0.25
-        mask = scores * category * 10 > threshold
-
-        # threshold = 0.5
-        # mask = scores * 5 > threshold
-
-        submission_str = ''
-
-        # plt.imshow(dcm_data.pixel_array)
-
-        if np.any(mask):
-            boxes_selected = p1p2_to_xywh(boxes[mask])  # x y w h format
-            boxes_selected *= 1024.0 / img_size
-            scores_selected = scores[mask]
-
-            for i in range(scores_selected.shape[0]):
-                x, y, w, h = boxes_selected[i]
-                submission_str += f' {scores_selected[i]:.3f} {x:.1f} {y:.1f} {w:.1f} {h:.1f}'
-                # plt.gca().add_patch(plt.Rectangle((x,y), width=w, height=h, fill=False, edgecolor='r', linewidth=2))
-
-        print(f'{patient_id},{submission_str}      {category:.2f}')
-        submission.write(f'{patient_id},{submission_str}\n')
-        # plt.show()
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('action', type=str, default='check')
@@ -630,10 +650,13 @@ if __name__ == '__main__':
     parser.add_argument('--fold', type=int, default=-1)
     parser.add_argument('--weights', type=str, default='')
     parser.add_argument('--epoch', type=int, default=-1)
-    parser.add_argument('--from-epoch', type=int, default=1)
+    parser.add_argument('--from-epoch', type=int, default=0)
     parser.add_argument('--to-epoch', type=int, default=100)
     parser.add_argument('--threshold', type=float, default=0.3)
     parser.add_argument('--submission', type=str, default='')
+
+    parser.add_argument('--resume_weights', type=str, default='')
+    parser.add_argument('--resume_epoch', type=int, default=-1)
 
     args = parser.parse_args()
     action = args.action
@@ -641,7 +664,7 @@ if __name__ == '__main__':
     fold = args.fold
 
     if action == 'train':
-        train(model_name=model, run=args.run, fold=args.fold)
+        train(model_name=model, run=args.run, fold=args.fold, resume_weights=args.resume_weights, resume_epoch=args.resume_epoch)
 
     if action == 'check':
         if args.epoch > -1:
@@ -658,14 +681,10 @@ if __name__ == '__main__':
     if action == 'generate_predictions':
         generate_predictions(model_name=model, run=args.run, fold=args.fold,
                              from_epoch=args.from_epoch, to_epoch=args.to_epoch)
-
-    if action == 'prepare_submission':
-        prepare_submission(model_name=model, run=args.run, fold=args.fold, epoch_num=args.epoch,
-                           threshold=args.threshold, submission_name=args.submission)
     #
     #
     # import torchsummary
-    # import pytorch_retinanet.model_incresv2
-    # m = pytorch_retinanet.model_incresv2.InceptionResnetV2Encoder()
+    # m = pytorch_retinanet.model_nasnet_mobile.NasnetMobileEncoder()
+    # m = pytorch_retinanet.model_xception.AlignedXception()
     # m.cuda()
     # torchsummary.summary(m, (1, 512, 512))

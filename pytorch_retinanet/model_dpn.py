@@ -51,7 +51,7 @@ class DPNEncoder(RetinaNetEncoder):
         return results
 
 
-def dpn92(num_classes, pretrained=True):
+def dpn92(num_classes, pretrained=True, **kwargs):
     """Constructs a DPN model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
@@ -65,7 +65,7 @@ def dpn92(num_classes, pretrained=True):
         encoder.encoder.load_state_dict(model_zoo.load_url(
             dpn.pretrained_settings['dpn92']['imagenet+5k']['url'], model_dir='models'), strict=False)
 
-    model = RetinaNet(encoder=encoder, num_classes=num_classes)
+    model = RetinaNet(encoder=encoder, num_classes=num_classes, **kwargs)
     return model
 
 
