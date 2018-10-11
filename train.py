@@ -94,6 +94,20 @@ MODELS = {
         batch_size=4,
         dataset_args=dict(augmentation_level=20)
     ),
+    'se_resnext101_dr0.75_512': ModelInfo(
+        factory=pytorch_retinanet.model_se_resnext.se_resnext101,
+        args=dict(num_classes=1, pretrained=True, dropout=0.75),
+        img_size=512,
+        batch_size=4,
+        dataset_args=dict(augmentation_level=20)
+    ),
+    'se_resnext101_dr_512_without_pretrained': ModelInfo(
+        factory=pytorch_retinanet.model_se_resnext.se_resnext101,
+        args=dict(num_classes=1, pretrained=False, dropout=0.5),
+        img_size=512,
+        batch_size=4,
+        dataset_args=dict(augmentation_level=20)
+    ),
     'se_resnext101_512_bs12': ModelInfo(
         factory=pytorch_retinanet.model_se_resnext.se_resnext101,
         args=dict(num_classes=1, pretrained=True),
@@ -223,7 +237,14 @@ MODELS = {
     ),
     'se_resnext50_512': ModelInfo(
         factory=pytorch_retinanet.model_se_resnext.se_resnext50,
-        args=dict(num_classes=1, pretrained=True, dropout=0.7),
+        args=dict(num_classes=1, pretrained=True, dropout=0.5),
+        img_size=512,
+        batch_size=8,
+        dataset_args=dict(augmentation_level=20)
+    ),
+    'se_resnext50_512_dr0.8': ModelInfo(
+        factory=pytorch_retinanet.model_se_resnext.se_resnext50,
+        args=dict(num_classes=1, pretrained=True, dropout=0.8),
         img_size=512,
         batch_size=8,
         dataset_args=dict(augmentation_level=20)
