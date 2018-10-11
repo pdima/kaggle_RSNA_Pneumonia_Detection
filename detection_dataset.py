@@ -22,10 +22,11 @@ import matplotlib.pyplot as plt
 from config import *
 
 class DetectionDataset(Dataset):
-    def __init__(self, fold, is_training, img_size, images=None, augmentation_level=10):
+    def __init__(self, fold, is_training, img_size, images=None, augmentation_level=10, crop_source=1024):
         self.fold = fold
         self.is_training = is_training
         self.img_size = img_size
+        self.crop_source = crop_source
         self.augmentation_level = augmentation_level
         self.categories = ['No Lung Opacity / Not Normal', 'Normal', 'Lung Opacity']
 
@@ -98,6 +99,13 @@ class DetectionDataset(Dataset):
         patient_id = self.patient_ids[idx]
 
         img = self.load_image(patient_id)
+
+        if self.crop_source != 1024:
+            img_source_w = self.crop_source
+            img_source_h = self.crop_source
+        else:
+            img_source_h, img_source_w = img.shape[:2]
+
         img_h, img_w = img.shape[:2]
 
         augmentation_sigma = {
@@ -111,8 +119,8 @@ class DetectionDataset(Dataset):
                 crop_size=self.img_size,
                 src_center_x=img_w/2 + np.random.uniform(-32, 32),
                 src_center_y=img_h/2 + np.random.uniform(-32, 32),
-                scale_x=self.img_size / img_w * (2 ** np.random.normal(0, augmentation_sigma['scale'])),
-                scale_y=self.img_size / img_h * (2 ** np.random.normal(0, augmentation_sigma['scale'])),
+                scale_x=self.img_size / img_source_w * (2 ** np.random.normal(0, augmentation_sigma['scale'])),
+                scale_y=self.img_size / img_source_h * (2 ** np.random.normal(0, augmentation_sigma['scale'])),
                 angle=np.random.normal(0, augmentation_sigma['angle']),
                 shear=np.random.normal(0, augmentation_sigma['shear']),
                 hflip=augmentation_sigma['hflip'],
@@ -123,8 +131,8 @@ class DetectionDataset(Dataset):
                 crop_size=self.img_size,
                 src_center_x=img_w / 2,
                 src_center_y=img_h / 2,
-                scale_x=self.img_size / img_w,
-                scale_y=self.img_size / img_h,
+                scale_x=self.img_size / img_source_w,
+                scale_y=self.img_size / img_source_h,
                 angle=0,
                 shear=0,
                 hflip=False,

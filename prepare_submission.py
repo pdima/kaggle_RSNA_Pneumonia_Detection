@@ -279,10 +279,10 @@ def prepare_submission_from_saved(model_name, run, epoch_nums, threshold, submis
         regression_results_pos = np.mean(regression_results_pos, axis=0, keepdims=True)
 
         regression_results_size = regression_results[:, :, 2:]
-        regression_results_size_p75 = np.percentile(regression_results_size, q=75, axis=0, keepdims=True)
-        regression_results_size = np.percentile(regression_results_size, q=25, axis=0, keepdims=True)
+        regression_results_size_p80 = np.percentile(regression_results_size, q=80, axis=0, keepdims=True)
+        regression_results_size = np.percentile(regression_results_size, q=20, axis=0, keepdims=True)
 
-        regression_results_size += (regression_results_size - regression_results_size_p75) * size_scale
+        regression_results_size += (regression_results_size - regression_results_size_p80) * size_scale
 
         regression_results = np.concatenate([regression_results_pos, regression_results_size], axis=2).astype(np.float32)
 

@@ -20,6 +20,7 @@ class Logger(object):
         summary = tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])
         # summary = tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value.tolist())])  # .tolist() is a wierd way to convert GPU tensor to float
         self.writer.add_summary(summary, step)
+        self.writer.flush()
 
     def image_summary(self, tag, images, step):
         """Log a list of images."""
