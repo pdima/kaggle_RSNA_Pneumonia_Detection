@@ -288,8 +288,13 @@ class RetinaNet(nn.Module):
 
     def freeze_encoder(self):
         self.encoder.eval()
-        # for layer in [self.conv1, self.bn1, self.layer1, self.layer2, self.layer3, self.layer4]:
-        #     layer.eval()
+        # correct version, but keep original as model has been trained this way
+        # for param in self.encoder.parameters():
+        #     param.requires_grad = False
+
+    def unfreeze_encoder(self):
+        for param in self.encoder.parameters():
+            param.requires_grad = True
 
     def boxes(self, img_batch, regression, classification, global_classification, anchors):
         transformed_anchors = self.regressBoxes(anchors, regression)

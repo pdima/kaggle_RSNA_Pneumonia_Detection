@@ -320,7 +320,7 @@ def prepare_submission_from_saved(model_name, run, epoch_nums, threshold, submis
             #     scores[0] *= 2
 
         if use_global_cat:
-            mask = scores * category * 10 > threshold
+            mask = ((scores * category) ** 0.5) * 5 > threshold
         else:
             mask = scores * 5 > threshold
 

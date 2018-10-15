@@ -110,15 +110,25 @@ class SeResNetXtEncoder(nn.Module):
         return x1, x2, x3, x4
 
 
-def se_resnext101(num_classes, pretrained=False, dropout=0.5):
+def se_resnext101(num_classes, pretrained=False, dropout=0.5, fold=0):
     """Constructs a ResNet-101 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     encoder = SeResNetXtEncoder(layers=[3, 4, 23, 3])
-    if pretrained:
+    if pretrained == 'imagenet':
         encoder.load_state_dict(model_zoo.load_url(
             senet.pretrained_settings['se_resnext101_32x4d']['imagenet']['url'], model_dir='models'), strict=False)
+
+    if pretrained == 'nih':
+        weights = {
+            0: 'checkpoints/pretrained/se_resnext101_nih_dr0_fold_0/se_resnext101_nih_dr0_006.pt',
+            1: 'checkpoints/pretrained/se_resnext101_nih_dr0_fold_1/se_resnext101_nih_dr0_004.pt',
+            2: 'checkpoints/pretrained/se_resnext101_nih_dr0_fold_2/se_resnext101_nih_dr0_004.pt',
+            3: 'checkpoints/pretrained/se_resnext101_nih_dr0_fold_3/se_resnext101_nih_dr0_004.pt',
+        }
+        print('load', weights[fold])
+        encoder.load_state_dict(torch.load(weights[fold]), strict=False)
 
     model = RetinaNet(encoder=encoder, num_classes=num_classes, dropout_cls=dropout, dropout_global_cls=dropout)
     return model
@@ -130,7 +140,7 @@ def se_resnext50(num_classes, pretrained=False, dropout=0.5):
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     encoder = SeResNetXtEncoder(layers=[3, 4, 6, 3])
-    if pretrained:
+    if pretrained == 'imagenet':
         encoder.load_state_dict(model_zoo.load_url(
             senet.pretrained_settings['se_resnext50_32x4d']['imagenet']['url'], model_dir='models'), strict=False)
 
