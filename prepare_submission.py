@@ -1,35 +1,16 @@
 import argparse
-import collections
 import os
 import pickle
+
+import numpy as np
 import pandas as pd
 import pydicom
 import skimage.transform
-
-import numpy as np
 import torch
-import torch.optim as optim
-from torch.optim import lr_scheduler
-from torch.utils.data import DataLoader
-from torchvision import datasets, models, transforms
-from tqdm import tqdm
-import metric
-
-import pytorch_retinanet.model
-import pytorch_retinanet.model_se_resnext
-import pytorch_retinanet.model_dpn
-import pytorch_retinanet.model_pnasnet
-import pytorch_retinanet.dataloader
+import cv2
+import utils
 
 import config
-import utils
-from config import CROP_SIZE, TEST_DIR
-import matplotlib.pyplot as plt
-
-import detection_dataset
-from detection_dataset import DetectionDataset
-from logger import Logger
-
 from train import MODELS, p1p2_to_xywh
 
 
@@ -189,19 +170,17 @@ def prepare_test_predictions(model_name, run, epoch_num):
     run_str = '' if run is None or run == '' else f'_{run}'
     models = []
 
-    sample_submission = pd.read_csv('../input/stage_1_sample_submission.csv')
+    sample_submission = pd.read_csv(config.SAMPLE_SUBMISSION_FILE)
 
     model_info = MODELS[model_name]
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    predictions_dir = f'../output/oof2/{model_name}{run_str}_fold_combined'
-    os.makedirs(predictions_dir, exist_ok=True)
 
     img_size = model_info.img_size
     # print('epoch', epoch_num)
 
     for fold in range(4):
         print('fold', fold)
-        output_dir = f'../output/test_predictions/{model_name}{run_str}_fold_{fold}/{epoch_num:03}/'
+        output_dir = f'{config.TEST_PREDICTIONS_DIR}/{model_name}{run_str}_fold_{fold}/{epoch_num:03}/'
         os.makedirs(output_dir, exist_ok=True)
 
         checkpoint = f'checkpoints/{model_name}{run_str}_fold_{fold}/{model_name}_{epoch_num:03}.pt'
@@ -216,6 +195,8 @@ def prepare_test_predictions(model_name, run, epoch_num):
             img = dcm_data.pixel_array
             # img = img / 255.0
             if img_size != 1024:
+                # img = cv2.resize(img, (img_size, img_size), interpolation=cv2.INTER_AREA)
+                # img = img.astype(np.float32) / 255.0
                 img = skimage.transform.resize(img, (img_size, img_size), order=1)
             else:
                 img = img.astype(np.float32) / 255.0
@@ -248,7 +229,7 @@ def prepare_submission_from_saved(model_name, run, epoch_nums, threshold, submis
     img_size = model_info.img_size
     img_tensor = torch.zeros(1, img_size, img_size, 1).permute(0, 3, 1, 2).to(device)
 
-    sample_submission = pd.read_csv('../input/stage_1_sample_submission.csv')
+    sample_submission = pd.read_csv(config.SAMPLE_SUBMISSION_FILE)
 
     img_size = model_info.img_size
     submission = open(f'../submissions/{submission_name}.csv', 'w')
@@ -264,7 +245,7 @@ def prepare_submission_from_saved(model_name, run, epoch_nums, threshold, submis
 
         for epoch_num in epoch_nums:
             for fold in range(4):
-                saved_dir = f'../output/test_predictions/{model_name}{run_str}_fold_{fold}/{epoch_num:03}/'
+                saved_dir = f'{config.TEST_PREDICTIONS_DIR}/{model_name}{run_str}_fold_{fold}/{epoch_num:03}/'
                 model_raw_result = pickle.load(open(f'{saved_dir}/{patient_id}.pkl', 'rb'))
                 # model_raw_result = [torch.from_numpy(r).to(device) for r in model_raw_result_numpy]
 
